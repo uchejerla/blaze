@@ -1,0 +1,28 @@
+# ── hello.blz — Blaze in 60 seconds ─────────────────────────────
+
+# Variables — no type declarations needed
+name = "Blaze"
+year = 2025
+
+# String interpolation
+"Hello from {name}, born in {year}!"
+
+# Math — power, modulo, all built in
+area(r) -> 3.14159 * r * r
+"Circle area (r=5): {area(5)}"
+
+# Lists and ranges
+nums = 1..10
+"Sum 1-10: {nums | sum}"
+"Even only: {nums | filter x -> x % 2 == 0}"
+"Squared:   {nums | map x -> x * x}"
+
+# Pipe chains — read left to right
+1..20 | filter x -> x % 2 == 0 | map x -> x * x | sum
+
+# String pipelines
+"the quick brown fox" | words | map w -> w | sort | join " "
+
+# Functions
+greet(name) -> "Hey, {name}! Welcome to Blaze."
+greet("World")

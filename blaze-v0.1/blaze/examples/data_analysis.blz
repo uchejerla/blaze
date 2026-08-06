@@ -1,0 +1,45 @@
+# ── data_analysis.blz — Stats & data pipelines ──────────────────
+
+# Dataset: exam scores
+scores = [85, 92, 78, 96, 88, 74, 91, 83, 79, 87, 95, 68, 90, 82, 76]
+
+"=== Exam Score Analysis ==="
+"Scores: {scores}"
+"Count:  {len(scores)}"
+
+# Descriptive stats — one call
+"Stats: {scores | describe}"
+
+# Distribution
+"Passing (>=80): {scores | filter x -> x >= 80}"
+"Failing  (<80): {scores | filter x -> x < 80}"
+"Pass rate: {(scores | filter x -> x >= 80 | len) * 100 / len(scores)}%"
+
+# Normalize to 0-100 z-score range
+"Z-scores: {scores | zscore | map x -> round(x, 2)}"
+
+# Grade bands
+grade(s) ->
+  match s
+    | >= 90 -> "A"
+    | >= 80 -> "B"
+    | >= 70 -> "C"
+    | _     -> "D"
+
+"Grades: {scores | map x -> grade(x)}"
+
+"=== Sales Data ==="
+# Month-over-month data
+sales = [120, 135, 142, 128, 156, 149, 163, 171, 158, 182, 174, 195]
+months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+"Total annual sales: {sales | sum}"
+"Monthly average:    {sales | mean}"
+"Best month:         {months[sales | argmax]}"
+"Growth (first→last): {round((sales[11] - sales[0]) / sales[0] * 100, 1)}%"
+
+# Cumulative sales
+"Cumulative: {sales | cumsum}"
+
+# Month-over-month delta
+"Monthly change: {sales | diff}"

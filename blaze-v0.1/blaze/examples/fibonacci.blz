@@ -1,0 +1,20 @@
+# ── fibonacci.blz — Recursion & sequences ───────────────────────
+
+# Classic recursive definition
+fib(n) -> if n <= 1 then n else fib(n-1) + fib(n-2)
+
+# First 13 Fibonacci numbers
+"Fibonacci sequence:"
+[fib(x) for x in 0..12]
+
+# Sum of all even Fibonacci numbers under 100
+"Even fibs under 100:"
+[fib(x) for x in 0..20] | filter n -> n < 100 and n % 2 == 0
+
+"Sum of even fibs under 100:"
+[fib(x) for x in 0..20] | filter n -> n < 100 and n % 2 == 0 | sum
+
+# Ratio of consecutive fibs → approaches golden ratio
+pairs = [fib(n+1) / fib(n) for n in 5..14]
+"Ratios approaching φ (golden ratio):"
+pairs | map x -> round(x, 6)

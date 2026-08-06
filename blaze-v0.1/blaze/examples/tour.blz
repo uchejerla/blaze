@@ -1,0 +1,90 @@
+# ══════════════════════════════════════════════
+#  Blaze Language Tour  —  examples/tour.blz
+# ══════════════════════════════════════════════
+
+# ── 1. Variables & strings ──────────────────
+name = "Blaze"
+version = 0.1
+print "Welcome to {name} v{version}!"
+
+# ── 2. Pipes ────────────────────────────────
+result = [1..100] | filter x -> x % 3 == 0 or x % 5 == 0 | sum
+print "Project Euler #1 answer: {result}"
+
+# ── 3. Functions ────────────────────────────
+fib(n) -> if n <= 1 then n else fib(n-1) + fib(n-2)
+fibs = [fib(n) for n in 0..12]
+print "Fibonacci: {fibs}"
+
+# ── 4. Statistics ───────────────────────────
+data = [23, 45, 12, 67, 34, 89, 56, 78, 11, 90]
+print "Data:    {data | sort}"
+print "Mean:    {data | mean | round(2)}"
+print "Median:  {data | median}"
+print "Std Dev: {data | std | round(2)}"
+print "Top 3:   {data | sort(order="desc") | take(3)}"
+
+# ── 5. String pipelines ─────────────────────
+sentence = "the quick brown fox jumps over the lazy dog"
+word_count = sentence | words | len
+unique_words = sentence | words | unique | sort | len
+print "Words: {word_count}, Unique: {unique_words}"
+
+# ── 6. Pattern matching ─────────────────────
+grade(score) ->
+  match score
+  | >= 90 -> "A"
+  | >= 80 -> "B"
+  | >= 70 -> "C"
+  | >= 60 -> "D"
+  | _     -> "F"
+
+scores = [95, 82, 74, 61, 55]
+grades = [grade(s) for s in scores]
+print "Grades: {grades}"
+
+# ── 7. List comprehensions ──────────────────
+pythagorean = [[a, b, c]
+  for a in 1..20
+  for b in 1..20
+  if a <= b]
+# (simplified — nested for in list comp)
+
+evens_squared = [x*x for x in 1..10 if x % 2 == 0]
+print "Even squares: {evens_squared}"
+
+# ── 8. Dict comprehension ───────────────────
+freq = {w: sentence | words | count_where(n -> n == w)
+        for w in ["the", "fox", "dog"]}
+print "Word frequencies: {freq}"
+
+# ── 9. Higher-order functions ───────────────
+pipeline = [1..20]
+  | filter x -> x % 2 == 0
+  | map x -> x * x
+  | filter x -> x > 50
+  | sort(order="asc")
+
+print "Pipeline result: {pipeline}"
+
+# ── 10. Record grouping ─────────────────────
+people = [
+  {name: "Alice", dept: "Engineering", salary: 95000},
+  {name: "Bob",   dept: "Marketing",   salary: 72000},
+  {name: "Carol", dept: "Engineering", salary: 88000},
+  {name: "Dave",  dept: "Marketing",   salary: 68000},
+  {name: "Eve",   dept: "Engineering", salary: 102000}
+]
+
+by_dept = people | group_by(p -> p.dept)
+print "By department: {by_dept | keys}"
+
+eng_avg = people
+  | filter p -> p.dept == "Engineering"
+  | map p -> p.salary
+  | mean
+  | round(0)
+
+print "Avg engineering salary: ${eng_avg}"
+
+print "\n✅ Tour complete!"

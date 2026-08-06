@@ -1,0 +1,15 @@
+# ── euler1.blz — Project Euler #1 ───────────────────────────────
+# Find the sum of all multiples of 3 or 5 below 1000.
+
+# One-liner solution
+"Euler #1 answer:"
+1..999 | filter x -> x % 3 == 0 or x % 5 == 0 | sum
+
+# Step-by-step breakdown
+candidates = 1..999 | filter x -> x % 3 == 0 or x % 5 == 0
+"Count of candidates: {len(candidates)}"
+"First 10: {candidates | take 10}"
+"Last 10:  {candidates | tail 10}"
+
+# Verify with smaller range (below 10 → 3+5+6+9 = 23)
+"Below 10 (should be 23): {1..9 | filter x -> x % 3 == 0 or x % 5 == 0 | sum}"
