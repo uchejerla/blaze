@@ -7,6 +7,7 @@ python3 blaze.py -e "[1..100] | filter x -> x % 3 == 0 or x % 5 == 0 | sum"
 # → 2418
 ```
 
+[![tests](https://github.com/uchejerla/blaze/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/uchejerla/blaze/actions/workflows/ci.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-zero-orange.svg)]()
