@@ -1,5 +1,6 @@
 # ══════════════════════════════════════════════
 #  Blaze Language Tour  —  examples/tour.blz
+#  Run:  python3 blaze.py examples/tour.blz
 # ══════════════════════════════════════════════
 
 # ── 1. Variables & strings ──────────────────
@@ -11,10 +12,25 @@ print "Welcome to {name} v{version}!"
 result = [1..100] | filter x -> x % 3 == 0 or x % 5 == 0 | sum
 print "Project Euler #1 answer: {result}"
 
+# Pipes can span lines — a line that starts with | continues the previous one
+evens_squared = [1..20]
+  | filter x -> x % 2 == 0
+  | map x -> x * x
+  | sum
+print "Sum of even squares 1..20: {evens_squared}"
+
 # ── 3. Functions ────────────────────────────
 fib(n) -> if n <= 1 then n else fib(n-1) + fib(n-2)
 fibs = [fib(n) for n in 0..12]
 print "Fibonacci: {fibs}"
+
+# Block bodies, locals and early return
+stats(data) ->
+  total = data | sum
+  count = data | len
+  return {total: total, mean: total / count}
+
+print "Stats of 1..10: {stats(1..10)}"
 
 # ── 4. Statistics ───────────────────────────
 data = [23, 45, 12, 67, 34, 89, 56, 78, 11, 90]
@@ -22,7 +38,7 @@ print "Data:    {data | sort}"
 print "Mean:    {data | mean | round(2)}"
 print "Median:  {data | median}"
 print "Std Dev: {data | std | round(2)}"
-print "Top 3:   {data | sort(order="desc") | take(3)}"
+print "Top 3:   {data | sort desc | take(3)}"
 
 # ── 5. String pipelines ─────────────────────
 sentence = "the quick brown fox jumps over the lazy dog"
@@ -40,18 +56,18 @@ grade(score) ->
   | _     -> "F"
 
 scores = [95, 82, 74, 61, 55]
-grades = [grade(s) for s in scores]
-print "Grades: {grades}"
+print "Grades: {[grade(s) for s in scores]}"
 
-# ── 7. List comprehensions ──────────────────
-pythagorean = [[a, b, c]
-  for a in 1..20
-  for b in 1..20
-  if a <= b]
-# (simplified — nested for in list comp)
+# ── 7. Loops & comprehensions ───────────────
+triples = []
+for a in 1..20:
+  for b in a..20:
+    c = sqrt(a * a + b * b)
+    if c == floor(c):
+      triples = triples + [[a, b, floor(c)]]
 
-evens_squared = [x*x for x in 1..10 if x % 2 == 0]
-print "Even squares: {evens_squared}"
+print "Pythagorean triples found: {triples | len}, first 3: {triples | take(3)}"
+print "Even squares: {[x*x for x in 1..10 if x % 2 == 0]}"
 
 # ── 8. Dict comprehension ───────────────────
 freq = {w: sentence | words | count_where(n -> n == w)
@@ -63,11 +79,11 @@ pipeline = [1..20]
   | filter x -> x % 2 == 0
   | map x -> x * x
   | filter x -> x > 50
-  | sort(order="asc")
+  | sort
 
 print "Pipeline result: {pipeline}"
 
-# ── 10. Record grouping ─────────────────────
+# ── 10. Records ─────────────────────────────
 people = [
   {name: "Alice", dept: "Engineering", salary: 95000},
   {name: "Bob",   dept: "Marketing",   salary: 72000},
@@ -77,13 +93,13 @@ people = [
 ]
 
 by_dept = people | group_by(p -> p.dept)
-print "By department: {by_dept | keys}"
+print "Departments: {by_dept | keys}"
 
 eng_avg = people
   | filter p -> p.dept == "Engineering"
   | map p -> p.salary
   | mean
-  | round(0)
+  | int
 
 print "Avg engineering salary: ${eng_avg}"
 

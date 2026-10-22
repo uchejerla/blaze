@@ -18,19 +18,20 @@
     python blaze.py -e "1..10 | sum"  → Eval expression
 
   Language highlights:
-    • Pipe-everything syntax  |
+    • Pipe-everything syntax  |  (multi-line chains supported)
     • Auto-inferred types     no type annotations needed
     • Built-in statistics     mean, std, percentile...
-    • Built-in data tables    load CSV, query, transform
+    • Built-in data tables    load CSV, filter, describe
     • Smart string interp     "Hello, {name}!"
     • Pattern matching        match / | arms
-    • 60+ built-in functions  batteries truly included
+    • 100+ built-in functions batteries truly included
+    • Zero dependencies       stdlib Python only
 """
 
-import sys, math, statistics, os, json, re
+import sys, math, statistics, csv, json, re
 from typing import Any, Dict, List, Optional
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 # ════════════════════════════════════════════════════════════════
 #  TOKEN TYPES
@@ -85,7 +86,7 @@ class Lexer:
         return ch
 
     def tokenize(self):
-        toks=[]; ind=[0]
+        toks=[]; ind=[0]; depth=0   # depth = open ( [ { — newlines inside them are ignored
         add = lambda t,v: toks.append(Tok(t,v,self.ln))
 
         while self.i < len(self.src):
@@ -98,10 +99,15 @@ class Lexer:
                 continue
 
             if ch == '\n':
-                self.eat(); add(NL,'\n')
+                self.eat()
                 sp=0
                 while self.i<len(self.src) and self.c()==' ': sp+=1; self.eat()
-                if self.i>=len(self.src) or self.c() in '\n#': continue
+                # inside ( [ { nothing is a statement line: no NL, no INDENT
+                if depth>0: continue
+                if self.i>=len(self.src) or self.c() in '\n#': add(NL,'\n'); continue
+                if toks and toks[-1].t==PIPE: continue      # line ends with '|'
+                if self.c()=='|': add(NL,'\n'); continue    # line starts with '|': no indent change
+                add(NL,'\n')
                 if sp>ind[-1]: ind.append(sp); add(INDENT,sp)
                 elif sp<ind[-1]:
                     while ind[-1]>sp: ind.pop(); add(DEDENT,'')
@@ -162,7 +168,11 @@ class Lexer:
                   '%':MOD,'^':POW,'<':LT,'>':GT,'=':ASSIGN,
                   '(':LP,')':RP,'[':LB,']':RB,'{':LC,'}':RC,
                   ',':COMMA,':':COLON,'.':DOT}
-            if ch in SING: toks.append(Tok(SING[ch],ch,ln)); self.eat(); continue
+            if ch in SING:
+                toks.append(Tok(SING[ch],ch,ln)); self.eat()
+                if ch in '([{': depth+=1
+                elif ch in ')]}': depth=max(0,depth-1)
+                continue
 
             raise BlazeError(f"Unexpected character '{ch}'", self.ln)
 
@@ -246,6 +256,7 @@ class TryCatch(N):
 class Parser:
     def __init__(self, toks):
         self.toks=toks; self.i=0
+        self.in_match_head=False   # `match x | ...`: '|' starts an arm, not a pipe
 
     def cur(self): return self.toks[self.i]
     def peek(self, o=1):
@@ -381,10 +392,22 @@ class Parser:
 
     def expr(self): return self.pipe_expr()
 
+    def _at_continued_pipe(self):
+        """True when the next line begins with '|' and continues this expression."""
+        if self.in_match_head: return False
+        j=self.i
+        while j<len(self.toks) and self.toks[j].t==NL: j+=1
+        return j>self.i and j<len(self.toks) and self.toks[j].t==PIPE
+
     def pipe_expr(self):
         l=self.or_expr()
-        while self.at(PIPE):
-            self.eat(PIPE); l=Pipe(l,self.pipe_rhs())
+        while True:
+            if self.at(PIPE) and not self.in_match_head:
+                self.eat(PIPE); l=Pipe(l,self.pipe_rhs())
+            elif self._at_continued_pipe():
+                while self.at(NL): self.eat()
+            else:
+                break
         return l
 
     def pipe_rhs(self):
@@ -550,7 +573,10 @@ class Parser:
 
     def match_expr(self):
         self.eat()  # match
-        v=self.expr()
+        # The subject ends at the line end; in a `match` head '|' opens an arm.
+        prev=self.in_match_head; self.in_match_head=True
+        try: v=self.expr()
+        finally: self.in_match_head=prev
         while self.at(NL): self.eat()
         # Accept optional INDENT (arms may be indented or at same level)
         indented = self.at(INDENT)
@@ -564,10 +590,10 @@ class Parser:
             t=self.cur()
             if t.v=='_': self.eat(); pat=('_',None)
             elif t.t in (EQ,NEQ,LT,GT,LEQ,GEQ):
-                op=self.eat().v; pv=self.expr(); pat=(op,pv)
+                op=self.eat().v; pv=self.or_expr(); pat=(op,pv)
             else:
-                pv=self.expr(); pat=('==',pv)
-            self.eat(ARROW); body=self.expr()
+                pv=self.or_expr(); pat=('==',pv)
+            self.eat(ARROW); body=self.or_expr()
             arms.append((pat,body))
         if indented and self.at(DEDENT): self.eat(DEDENT)
         return Match(v,arms)
@@ -616,26 +642,29 @@ class Parser:
         self.eat(LC)
         while self.at(NL): self.eat()
         if self.at(RC): self.eat(RC); return Dict_([])
-        k=self.dict_key(); self.eat(COLON); v=self.expr()
+        k,kname=self.dict_key(); self.eat(COLON); v=self.expr()
         if self.at('for'):
             self.eat(); var=self.eat(ID).v; self.eat('in'); it=self.expr()
             c=None
             if self.at('if'): self.eat(); c=self.expr()
-            self.eat(RC); return DictComp(k,v,var,it,c)
+            self.eat(RC)
+            # {name: 1} uses the literal key "name"; {k: v for ...} computes the key
+            return DictComp(Var(kname) if kname else k,v,var,it,c)
         pairs=[(k,v)]
         while self.at(COMMA):
             self.eat(COMMA)
             while self.at(NL): self.eat()
             if self.at(RC): break
-            k2=self.dict_key(); self.eat(COLON); v2=self.expr()
+            k2,_=self.dict_key(); self.eat(COLON); v2=self.expr()
             pairs.append((k2,v2))
         while self.at(NL): self.eat()
         self.eat(RC); return Dict_(pairs)
 
     def dict_key(self):
+        """Returns (key_node, identifier_name_or_None)."""
         t=self.cur()
-        if t.t==ID: self.eat(); return Str([('s',t.v)])
-        return self.expr()
+        if t.t==ID: self.eat(); return Str([('s',t.v)]), t.v
+        return self.expr(), None
 
 # ════════════════════════════════════════════════════════════════
 #  RUNTIME
@@ -681,17 +710,18 @@ class Brk(Exception): pass
 class Cont(Exception): pass
 
 class Env:
-    def __init__(self,p=None): self.v={}; self.parent=p
+    def __init__(self,p=None,fn_frame=False):
+        self.v={}; self.parent=p; self.fn_frame=fn_frame
     def get(self,n):
         if n in self.v: return self.v[n]
         if self.parent: return self.parent.get(n)
         raise BlazeError(f"Undefined: '{n}'")
     def set(self,n,v): self.v[n]=v   # always creates in current scope (for params/new vars)
-    def update(self,n,v):             # mutates existing variable wherever it lives
+    def update(self,n,v):             # mutates existing variable, never crossing a function boundary
         if n in self.v: self.v[n]=v; return True
-        if self.parent: return self.parent.update(n,v)
+        if self.parent and not self.fn_frame: return self.parent.update(n,v)
         return False
-    def assign(self,n,v):             # update if exists, create locally if new
+    def assign(self,n,v):             # update if reachable in this function, else create locally
         if not self.update(n,v): self.v[n]=v
     def has(self,n): return n in self.v or (bool(self.parent) and self.parent.has(n))
 
@@ -714,6 +744,66 @@ def _lst(v, name=''):
     raise BlazeError(f"{name}: expected list, got {type(v).__name__}")
 
 def _nums(v,n=''): return [x for x in _lst(v,n) if isinstance(x,(int,float))]
+
+def _key(v):
+    """Dict key for a Blaze value: the value itself when hashable, else its display form."""
+    try: hash(v); return v
+    except TypeError: return br(v)
+
+def _where(t, fn):
+    """Filter a table (or list) by a predicate — one pass, records built once."""
+    if isinstance(t, BlazeTable):
+        keep=[r for r in t.to_records() if _call(fn,[r])]
+        return BlazeTable({c:[r[c] for r in keep] for c in t.cols})
+    return [x for x in _lst(t,'where') if _call(fn,[x])]
+
+def _numify(v):
+    """CSV cells arrive as text; turn plain numbers back into numbers."""
+    if not isinstance(v,str): return v
+    s=v.strip()
+    if re.fullmatch(r'-?\d+', s): return int(s)
+    if re.fullmatch(r'-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?', s): return float(s)
+    return v
+
+def _load_csv(path):
+    with open(str(path), newline='') as f:
+        rows=list(csv.DictReader(f))
+    if not rows: return BlazeTable({})
+    cols=list(rows[0].keys())
+    return BlazeTable({c:[_numify(r.get(c)) for r in rows] for c in cols})
+
+def _load_json(path):
+    with open(str(path)) as f: return json.load(f)
+
+def _save_json(v, path):
+    with open(str(path),'w') as f:
+        json.dump(v.to_records() if isinstance(v,BlazeTable) else v, f, indent=2)
+    return True
+
+def _read_file(path):
+    with open(str(path)) as f: return f.read()
+
+def _write_file(path, v):
+    with open(str(path),'w') as f: f.write(str(v))
+    return True
+
+def _percentile(v, p):
+    """Linear-interpolated percentile, so percentile(v, 50) == median(v)."""
+    l=sorted(_nums(v,'percentile'))
+    if not l: raise BlazeError("percentile: empty list")
+    if not 0<=p<=100: raise BlazeError(f"percentile: p must be 0..100, got {p}")
+    pos=p/100*(len(l)-1); lo=math.floor(pos); hi=math.ceil(pos)
+    return float(l[lo]) if lo==hi else l[lo]+(l[hi]-l[lo])*(pos-lo)
+
+def _reduce(lst, fn, init=None):
+    l=_lst(lst,'reduce')
+    if init is None:
+        if not l: raise BlazeError("reduce: empty list and no init")
+        acc, rest = l[0], l[1:]
+    else:
+        acc, rest = init, l
+    for x in rest: acc=_call(fn,[acc,x])
+    return acc
 def _nonempty(v,n): lst=_nums(v,n); assert lst,f"{n}: empty list"; return lst
 
 def br(v):
@@ -721,7 +811,11 @@ def br(v):
     if v is None: return 'null'
     if isinstance(v,bool): return 'true' if v else 'false'
     if isinstance(v,float):
-        return str(int(v))+'.0' if v==int(v) else f"{v:.6g}"
+        if v!=v: return 'nan'
+        if v==math.inf: return 'inf'
+        if v==-math.inf: return '-inf'
+        if v==int(v) and abs(v)<1e16: return str(int(v))+'.0'
+        return f"{v:.12g}"
     if isinstance(v,list):
         return '['+', '.join(br(x) for x in v)+']'
     if isinstance(v,dict):
@@ -813,10 +907,7 @@ def make_stdlib():
         # ── List ──
         'map':      bb('map',    lambda lst,fn: [_call(fn,[x]) for x in _lst(lst,'map')]),
         'filter':   bb('filter', lambda lst,fn: [x for x in _lst(lst,'filter') if _call(fn,[x])]),
-        'reduce':   bb('reduce', lambda lst,fn,init=None: (
-                        lambda l: l[0] if not init and not l[1:] else
-                        __import__('functools').reduce(lambda a,b:_call(fn,[a,b]),l,init) if init is not None else
-                        __import__('functools').reduce(lambda a,b:_call(fn,[a,b]),l))(_lst(lst,'reduce'))),
+        'reduce':   bb('reduce', _reduce),
         'each':     bb('each',   lambda lst,fn: [_call(fn,[x]) for x in _lst(lst,'each')] and lst),
         'find':     bb('find',   lambda lst,fn: next((x for x in _lst(lst,'find') if _call(fn,[x])),None)),
         'any':      bb('any',    lambda lst,fn=None: any(_call(fn,[x]) for x in _lst(lst)) if fn else any(_lst(lst))),
@@ -836,8 +927,8 @@ def make_stdlib():
         'zip':      bb('zip',    lambda *ls: [list(t) for t in zip(*[_lst(l) for l in ls])]),
         'enumerate':bb('enumerate',lambda v: [[i,x] for i,x in enumerate(_lst(v,'enumerate'))]),
         'range':    bb('range',  lambda s,e=None,st=1: list(range(int(s),int(e)+1,int(st))) if e else list(range(int(s)))),
-        'group_by': bb('group_by',lambda lst,fn: (lambda d: [d.setdefault(str(_call(fn,[x])),[]).append(x) or d for x in _lst(lst)] and d)({})),
-        'frequency':bb('frequency',lambda v: (lambda d: [d.__setitem__(str(x),d.get(str(x),0)+1) for x in _lst(v)] and d)({})),
+        'group_by': bb('group_by',lambda lst,fn: (lambda d: [d.setdefault(_key(_call(fn,[x])),[]).append(x) or d for x in _lst(lst)] and d)({})),
+        'frequency':bb('frequency',lambda v: (lambda d: [d.__setitem__(_key(x),d.get(_key(x),0)+1) for x in _lst(v)] and d)({})),
         'partition':bb('partition',lambda lst,fn: [[x for x in _lst(lst) if _call(fn,[x])],[x for x in _lst(lst) if not _call(fn,[x])]]),
         'sample':   bb('sample', lambda v,n=1: __import__('random').sample(_lst(v,'sample'),min(int(n),len(_lst(v,'sample'))))),
         'shuffle':  bb('shuffle',lambda v: (lambda l: __import__('random').shuffle(l) or l)(list(_lst(v,'shuffle')))),
@@ -879,7 +970,7 @@ def make_stdlib():
         'median':     bb('median',   lambda v: statistics.median(_nonempty(v,'median'))),
         'std':        bb('std',      lambda v: statistics.stdev(_nonempty(v,'std')) if len(_nonempty(v,'std'))>1 else 0.0),
         'var':        bb('var',      lambda v: statistics.variance(_nonempty(v,'var')) if len(_nonempty(v,'var'))>1 else 0.0),
-        'percentile': bb('percentile',lambda v,p: (lambda l,p:l[int(p/100*(len(l)-1))])(sorted(_nums(v,'percentile')),p)),
+        'percentile': bb('percentile',_percentile),
         'normalize':  bb('normalize',lambda v: (lambda l,mn,mx:[(x-mn)/(mx-mn) if mx!=mn else 0.0 for x in l])(_nums(v,'normalize'),min(_nums(v)),max(_nums(v)))),
         'zscore':     bb('zscore',   lambda v: (lambda l,m,s:[(x-m)/s if s else 0.0 for x in l])(_nums(v,'zscore'),sum(_nums(v))/len(_nums(v)),statistics.stdev(_nums(v)) if len(_nums(v))>1 else 1)),
         'corr':       bb('corr',     corr),
@@ -931,19 +1022,15 @@ def make_stdlib():
         'rows':   bb('rows',   lambda v: v.to_records() if isinstance(v,BlazeTable) else v),
         'head':   bb('head',   lambda v,n=5: BlazeTable({c:v.data[c][:int(n)] for c in v.cols}) if isinstance(v,BlazeTable) else _lst(v)[:int(n)]),
         'tail':   bb('tail',   lambda v,n=5: BlazeTable({c:v.data[c][-int(n):] for c in v.cols}) if isinstance(v,BlazeTable) else _lst(v)[-int(n):]),
-        'where':  bb('where',  lambda t,fn: (BlazeTable({k:[t.data[k][i] for i in range(t.nrows) if _call(fn,[t.to_records()[i]])] for k in t.cols}) if isinstance(t,BlazeTable) else [x for x in _lst(t) if _call(fn,[x])])),
+        'where':  bb('where',  _where),
         'select_cols': bb('select_cols', lambda t,*cs: BlazeTable({c:t.data[c] for c in cs if c in t.data}) if isinstance(t,BlazeTable) else t),
 
         # ── File I/O ──
-        'load':      bb('load',      lambda p: (lambda rows,cols:
-                          BlazeTable({c:[(lambda v:int(v) if v.lstrip('-').isdigit() else float(v) if re.match(r'^-?\d+\.?\d*$',v) else v)(r[c]) for r in rows] for c in cols}))(
-                          list(__import__('csv').DictReader(open(str(p)))),
-                          list(__import__('csv').DictReader(open(str(p))).fieldnames or []))),
-        'load_json': bb('load_json', lambda p: json.load(open(str(p)))),
-        'save_json': bb('save_json', lambda v,p: json.dump(
-                          v.to_records() if isinstance(v,BlazeTable) else v,open(str(p),'w'),indent=2) or True),
-        'read_file': bb('read_file', lambda p: open(str(p)).read()),
-        'write_file':bb('write_file',lambda p,v: open(str(p),'w').write(str(v)) or True),
+        'load':      bb('load',      _load_csv),
+        'load_json': bb('load_json', _load_json),
+        'save_json': bb('save_json', _save_json),
+        'read_file': bb('read_file', _read_file),
+        'write_file':bb('write_file',_write_file),
 
         # ── Misc ──
         'identity': bb('identity', lambda v: v),
@@ -1014,7 +1101,7 @@ class Interpreter:
             if op=='*':
                 if isinstance(l,str) and isinstance(r,int): return l*r
                 return l*r
-            if op=='/':  return l/r if r else (math.inf if l>0 else -math.inf)
+            if op=='/':  return l/r if r else (math.nan if l==0 else (math.inf if l>0 else -math.inf))
             if op=='%':  return l%r
             if op in ('^','**'): return l**r
             if op=='//': return l//r
@@ -1133,6 +1220,8 @@ class Interpreter:
 
         if T is TryCatch:
             try: return self.ev(node.body,Env(env))
+            except (Ret, Brk, Cont):
+                raise   # control flow must not be mistaken for an error
             except BlazeError as ex:
                 sub=Env(env)
                 if node.var: sub.set(node.var,str(ex))
@@ -1205,7 +1294,7 @@ class Interpreter:
 
     def call_fn(self, fn, args, kw=None):
         if kw is None: kw={}
-        loc=Env(fn.env)
+        loc=Env(fn.env, fn_frame=True)   # assignments in a body stay local to the call
         for i,p in enumerate(fn.params):
             if i<len(args): loc.set(p,args[i])
             elif p in kw: loc.set(p,kw[p])
@@ -1234,11 +1323,14 @@ HELP = """
 
   FUNCTIONS       double(x) -> x * 2
   LAMBDAS         sq = x -> x * x
-  MULTI-LINE      fn stats(data) ->
+  MULTI-LINE      stats(data) ->
                     {mean: data | mean, std: data | std}
 
   PIPES           [1..100] | filter x -> x%2==0 | sum
                   "hello world" | upper | words | reverse | join "-"
+  MULTI-LINE      result = [1..20]
+                    | filter x -> x % 2 == 0
+                    | sum
 
   IF EXPR         if score >= 90 then "A" elif score >= 80 then "B" else "C"
   MATCH           match status | "ok" -> 1 | "fail" -> 0 | _ -> -1
@@ -1286,6 +1378,37 @@ HELP = """
   Type 'exit' to quit.
 """
 
+def _open_brackets(src):
+    """Bracket nesting depth, ignoring string literals and comments."""
+    depth=0; q=None; i=0
+    while i<len(src):
+        c=src[i]
+        if q:
+            if c=='\\': i+=2; continue
+            if c==q: q=None
+        elif c in '"\'': q=c
+        elif c=='#':
+            while i<len(src) and src[i]!='\n': i+=1
+            continue
+        elif c in '([{': depth+=1
+        elif c in ')]}': depth=max(0,depth-1)
+        i+=1
+    return depth
+
+def _needs_more(src):
+    """True while the entered text is visibly incomplete."""
+    return src.rstrip().endswith((':','->','|')) or _open_brackets(src)>0
+
+def _repl_run(interp, src):
+    try:
+        r=interp.run(src)
+        if r is not None and not isinstance(r,(BlazeFunc,BlazeBuiltin)):
+            print(f"  → {br(r)}")
+    except Ret as ret:
+        if ret.v is not None: print(f"  → {br(ret.v)}")
+    except Exception as ex:
+        print(ex)
+
 def repl():
     interp = Interpreter()
     print(f"""
@@ -1295,7 +1418,7 @@ def repl():
   ╚══════════════════════════════════════════════════════╝
   Type 'help' for a quick guide, 'exit' to quit.
 """)
-    buf=[]; cont=False
+    buf=[]; cont=False; block=False
     while True:
         try:
             line=input('... ' if cont else 'blaze> ')
@@ -1305,28 +1428,18 @@ def repl():
         if line.strip()=='exit': print("  Goodbye! 🔥"); break
         if line.strip()=='help': print(HELP); continue
         if line.strip()=='':
-            if cont:
-                src='\n'.join(buf); buf=[]; cont=False
-                try:
-                    r=interp.run(src)
-                    if r is not None and not isinstance(r,(BlazeFunc,BlazeBuiltin)):
-                        print(f"  → {br(r)}")
-                except Exception as ex: print(ex)
+            if cont and buf:
+                _repl_run(interp, '\n'.join(buf)); buf=[]; cont=False; block=False
             continue
 
         buf.append(line)
-        if line.rstrip().endswith(':') or line.rstrip().endswith('->'):
-            cont=True; continue
-        if not cont:
-            src=line; buf=[]
-            try:
-                r=interp.run(src)
-                if r is not None and not isinstance(r,(BlazeFunc,BlazeBuiltin)):
-                    print(f"  → {br(r)}")
-            except Ret as ret:
-                if ret.v is not None: print(f"  → {br(ret.v)}")
-            except Exception as ex:
-                print(ex)
+        if cont and block:
+            continue                     # block body: a blank line ends it
+        if _needs_more('\n'.join(buf)):
+            cont=True; block=line.rstrip().endswith((':','->'))
+            continue
+        src='\n'.join(buf); buf=[]; cont=False; block=False
+        _repl_run(interp, src)
 
 # ════════════════════════════════════════════════════════════════
 #  ENTRY POINT

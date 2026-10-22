@@ -105,6 +105,36 @@ add10 = make_adder(10)
 [add10(x) for x in 1..5]  # → [11, 12, 13, 14, 15]
 ```
 
+### Scope
+
+Assignment inside a function body creates a local, so functions cannot
+accidentally overwrite globals:
+
+```blaze
+counter = 0
+bump() ->
+  counter = counter + 1   # a local `counter` — the global stays 0
+
+bump()
+counter                   # → 0
+```
+
+Assignments in `if` / `for` / `while` blocks update the enclosing variable, so
+accumulators work as you would expect.
+
+### Multi-line pipelines
+
+A line that starts with `|` continues the previous line, as does anything
+inside unclosed `(` `[` `{`:
+
+```blaze
+result = [1..20]
+  | filter x -> x % 2 == 0
+  | map x -> x * x
+  | sum
+# → 1540
+```
+
 ### Built-in Statistics — no imports
 
 ```blaze
@@ -112,16 +142,19 @@ data = [23, 45, 12, 67, 34, 89, 56, 78, 11, 90]
 
 print "Mean:      {data | mean | round(2)}"     # → 50.5
 print "Std Dev:   {data | std | round(2)}"      # → 30.19
-print "Median:    {data | median}"              # → 51.0
+print "Median:    {data | median}"              # → 50.5
 print "Top 3:     {data | sort desc | take(3)}" # → [90, 89, 78]
 
 # Correlation
 xs = [1, 2, 3, 4, 5]
 ys = [2.1, 4.0, 5.9, 8.2, 10.1]
-corr(xs, ys) | round(4)   # → 0.9998
+corr(xs, ys) | round(4)   # → 0.9994
 
 # Linear regression
-linreg(xs, ys)  # → {slope: 2.0, intercept: 0.05}
+linreg(xs, ys)  # → {slope: 2.02, intercept: 0.0}
+
+# `std` and `var` are sample statistics (divide by n-1);
+# `percentile` interpolates linearly, so percentile(d, 50) == median(d).
 ```
 
 ### Range Literals
@@ -174,16 +207,20 @@ person.name                 # → "Alice"
 
 ---
 
-## Built-in Functions (60+)
+## Built-in Functions (100+)
 
 | Category | Functions |
 |---|---|
-| Math | `sum` `mean` `median` `std` `min` `max` `abs` `sqrt` `pow` `floor` `ceil` `round` `log` `exp` |
-| Stats | `corr` `zscore` `linreg` `normalize` `percentile` `describe` |
-| Lists | `sort` `filter` `map` `reduce` `take` `drop` `first` `last` `unique` `reverse` `flatten` `count` `len` `append` `prepend` `chunk` `zip` `group_by` `frequency` |
-| Strings | `upper` `lower` `words` `chars` `trim` `split` `join` `replace` `contains` `starts_with` `ends_with` |
-| Type | `str` `num` `bool` `type` |
-| I/O | `print` |
+| Math | `sum` `min` `max` `abs` `sqrt` `pow` `floor` `ceil` `round` `log` `exp` `sin` `cos` `tan` `clamp` `lerp` |
+| Stats | `mean` `median` `std` `var` `corr` `zscore` `linreg` `normalize` `percentile` `describe` `hist` `scatter` |
+| Lists | `sort` `sort_by` `filter` `map` `reduce` `take` `skip` `first` `last` `unique` `reverse` `flat` `count` `len` `chunk` `zip` `group_by` `frequency` `partition` `cumsum` `diff` `find` `any` `all` |
+| Strings | `upper` `lower` `words` `lines` `trim` `ltrim` `rtrim` `split` `join` `replace` `contains` `starts_with` `ends_with` `pad_left` `pad_right` `repeat` |
+| Tables | `table` `load` `cols` `rows` `head` `tail` `where` `select_cols` `describe` |
+| Type | `str` `int` `float` `bool` `list` `type` |
+| I/O | `print` `show` `input` `read_file` `write_file` `load_json` `save_json` |
+
+`group_by` and `frequency` keep the original values as keys, so
+`group_by(users, u -> u.age)[30]` works as expected.
 
 ---
 
@@ -192,16 +229,32 @@ person.name                 # → "Alice"
 See the [`examples/`](examples/) directory:
 
 - [`tour.blz`](examples/tour.blz) — full language tour
-- [`euler.blz`](examples/euler.blz) — Project Euler solutions
-- [`stats.blz`](examples/stats.blz) — statistics & data analysis
-- [`closures.blz`](examples/closures.blz) — higher-order functions & closures
+- [`euler1.blz`](examples/euler1.blz) — Project Euler solutions
+- [`data_analysis.blz`](examples/data_analysis.blz) — statistics & data analysis
+- [`fibonacci.blz`](examples/fibonacci.blz) — recursion and comprehensions
 - [`hello.blz`](examples/hello.blz) — hello world
+
+Every example is executed by the test suite, so they are guaranteed to run.
+
+---
+
+## Development
+
+```bash
+python3 -m unittest discover -s tests -v   # 65 conformance tests, no dependencies
+```
+
+The suite covers every README example, the builtins, the error paths and each
+file in `examples/`. It also fails if the README documents a function that does
+not exist — documentation drift is a test failure, not a code review note.
 
 ---
 
 ## Roadmap
 
-- [ ] `v0.2` — Table / CSV support: `load("data.csv") | where age > 30 | select name, salary`
+- [x] `v0.1` — Core language, 100+ builtins, REPL, file runner, `-e`
+- [x] `v0.2` — CSV tables: `load("data.csv") | where r -> r.age > 30`
+- [ ] `v0.3` — Table sugar: `select name, salary`, `group by dept`, `agg`
 - [ ] `v0.3` — Standard library loader: `use "stats"` / `use "io"`
 - [ ] `v0.4` — pip package: `pip install blaze-lang`
 - [ ] `v0.5` — VSCode extension with syntax highlighting

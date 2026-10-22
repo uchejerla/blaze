@@ -4,6 +4,50 @@ All notable changes to Blaze will be documented here.
 
 ---
 
+## [0.1.1] — 2026-10-22
+
+Correctness pass. Several programs were returning wrong answers rather than
+failing loudly; this release fixes them and adds the first test suite.
+
+### Fixed
+- `return` / `break` / `continue` inside `try` were swallowed by the catch
+  handler (`try: return 5` returned the handler's value)
+- Assignment inside a function body no longer writes through to globals;
+  each call gets its own frame, so functions cannot clobber caller variables
+- `group_by` / `frequency` keep the original values as dict keys instead of
+  stringifying them, so `group_by(xs, f)[30]` works
+- `reduce(list, fn, init)` no longer ignores falsy `init` values on
+  single-element lists, and reports empty-list-without-init as an error
+- `percentile` interpolates linearly, so `percentile(data, 50) == median(data)`
+  and values match NumPy; out-of-range percentiles are an error
+- Dict comprehensions compute their keys: `{x: x*x for x in 1..3}` was
+  producing `{x: 9}`
+- Floats keep full precision when printed (`123456.789` no longer prints as
+  `123457`), and `inf` / `-inf` / `nan` are printable
+- `0/0` is `nan` instead of `-inf`
+- `match` accepts single-line arms again: `match x | 1 -> "a" | _ -> "b"`
+
+### Added
+- Multi-line pipelines: a line starting with `|` continues the previous one,
+  and newlines inside `(` `[` `{` are ignored
+- `tests/` — 65 stdlib-only conformance tests (`python3 -m unittest discover -s tests`)
+  covering README examples, builtins, error paths, the CLI and every example
+- CI workflow running the suite on Python 3.8 / 3.11 / 3.12
+
+### Changed
+- `examples/` moved to the repository root (the README linked to it there);
+  `tour.blz` rewritten and verified end to end
+- README builtin table now lists only functions that exist (`flat`, `skip`
+  rather than `flatten`, `drop`; removed `append`, `prepend`, `chars`, `num`)
+- Documented outputs corrected (`median` 50.5, `corr` 0.9994,
+  `linreg` `{slope: 2.02, intercept: 0.0}`)
+- Removed the stale duplicate interpreter under `blaze-v0.1/` and the
+  committed `.pyc`
+- REPL continues on unbalanced brackets and trailing `|`
+- `VERSION` 0.1.1
+
+---
+
 ## [0.1.0] — 2026-08-05
 
 ### Added
@@ -41,13 +85,10 @@ All notable changes to Blaze will be documented here.
 
 ## Upcoming
 
-### [0.2.0] — planned
-- Table / CSV support: `load("data.csv") | where col > val | select col1, col2`
-- Multi-param lambdas: `(x, y) -> x + y`
-
 ### [0.3.0] — planned
+- Table sugar: `select name, salary`, `group by dept`, `agg count`
+  (today: `select_cols`, `group_by`, `count_where`)
 - Standard library loader: `use "stats"` / `use "io"`
-- File I/O: `read("file.txt")`, `write("out.txt", data)`
 
 ### [0.4.0] — planned
 - `pip install blaze-lang`
