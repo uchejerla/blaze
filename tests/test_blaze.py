@@ -34,8 +34,13 @@ def evaluate(src):
 
 
 def show(src):
-    """Run Blaze source and return the value as Blaze would print it."""
-    return blaze.br(evaluate(src))
+    """Run Blaze source and return the value as Blaze would print it.
+
+    Anything the program itself prints is discarded; use output() for that.
+    """
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        return blaze.br(evaluate(src))
 
 
 def output(src):
@@ -205,6 +210,47 @@ class TestFunctions(unittest.TestCase):
     def test_function_values_are_first_class(self):
         src = "apply(f, v) -> f(v)\napply(x -> x * 10, 4)"
         self.assertEqual(show(src), "40")
+
+
+class TestBodyStatements(unittest.TestCase):
+    """`print x` / `show x` are statements, and a `->` body is where a
+    statement is often written, so both must work as a one-line body."""
+
+    def test_lambda_body(self):
+        self.assertEqual(output("map([1, 2], x -> print x)"), "1\n2\n")
+        self.assertEqual(show("map([1, 2], x -> print x)"), "[null, null]")
+
+    def test_function_body(self):
+        self.assertEqual(output("f(x) -> print x\nf(7)"), "7\n")
+
+    def test_parenthesised_lambda_body(self):
+        self.assertEqual(output("f = (x) -> print x\nf(3)"), "3\n")
+
+    def test_pipe_lambda_body(self):
+        self.assertEqual(output("[1, 2] | map x -> print x"), "1\n2\n")
+
+    def test_pipe_after_a_print_body_still_belongs_to_the_pipeline(self):
+        src = "[1, 2] | map x -> print x | len"
+        self.assertEqual(show(src), "2")
+        self.assertEqual(output(src), "1\n2\n")
+
+    def test_match_arm_body(self):
+        src = (
+            "g(n) ->\n"
+            "  match n\n"
+            "  | 1 -> print \"one\"\n"
+            "  | _ -> print \"other\"\n"
+            "g(1)"
+        )
+        self.assertEqual(output(src), "one\n")
+
+    def test_show_body_returns_its_value(self):
+        self.assertEqual(output("map([1, 2], x -> show x)"), "1\n2\n")
+        self.assertEqual(show("map([1, 2], x -> show x)"), "[1, 2]")
+
+    def test_bare_print_is_still_a_first_class_value(self):
+        self.assertEqual(output("map([1, 2], print)"), "1\n2\n")
+        self.assertEqual(show("apply(f) -> f\ntype(apply(print))"), "fn")
 
 
 class TestCollections(unittest.TestCase):

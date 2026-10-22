@@ -25,6 +25,8 @@ failing loudly; this release fixes them and adds the first test suite.
 - Floats keep full precision when printed (`123456.789` no longer prints as
   `123457`), and `inf` / `-inf` / `nan` are printable
 - `0/0` is `nan` instead of `-inf`
+- `print` / `show` work as the one-line body of a function, lambda or `match`
+  arm (`map(xs, x -> print x)` used to fail with `Undefined: 'x'`)
 - `match` accepts single-line arms again: `match x | 1 -> "a" | _ -> "b"`
 
 ### Added

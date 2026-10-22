@@ -350,7 +350,22 @@ class Parser:
                 if s: stmts.append(s)
             if self.at(DEDENT): self.eat(DEDENT)
             return Block(stmts)
-        return self.expr()
+        return self.body_expr()
+
+    def body_expr(self, stop_at_pipe=False):
+        """A one-line `->` body (function, lambda or match arm).
+
+        `print x` and `show x` are statements, but a `->` body is often the
+        last place a statement is written, so they mean the same thing here as
+        they do at the top level. Bare `print` / `show` still refer to the
+        built-ins, so `map(xs, print)` and `f(x) -> print` keep working.
+        """
+        sub = self.or_expr if stop_at_pipe else self.expr
+        t = self.cur()
+        if t.v in ('print', 'show') and self.peek().t not in (LP, NL, EOF, RP, RB, RC, COMMA, DEDENT, PIPE):
+            self.eat()
+            return Show(sub()) if t.v == 'show' else Call(Var('print'), [sub()], {})
+        return sub()
 
     def indented_block(self):
         while self.at(NL): self.eat()
@@ -439,7 +454,7 @@ class Parser:
                         while not self.at(ARROW, NL, EOF):
                             params.append(self.eat(ID).v)
                         self.eat(ARROW)
-                        args.append(Lambda(params, self.or_expr()))
+                        args.append(Lambda(params, self.body_expr(stop_at_pipe=True)))
                     else:
                         # | join "-", | take 3 — one literal arg
                         args.append(self.primary())
@@ -540,7 +555,7 @@ class Parser:
             self.eat(); n=Var(t.v)
             # Lambda: x -> body (must be here before postfix swallows it)
             if self.at(ARROW):
-                self.eat(ARROW); return Lambda([t.v],self.expr())
+                self.eat(ARROW); return Lambda([t.v],self.body_expr())
             return n
 
         # Numeric range starting with number: 1..10
@@ -593,7 +608,7 @@ class Parser:
                 op=self.eat().v; pv=self.or_expr(); pat=(op,pv)
             else:
                 pv=self.or_expr(); pat=('==',pv)
-            self.eat(ARROW); body=self.or_expr()
+            self.eat(ARROW); body=self.body_expr(stop_at_pipe=True)
             arms.append((pat,body))
         if indented and self.at(DEDENT): self.eat(DEDENT)
         return Match(v,arms)
@@ -612,7 +627,7 @@ class Parser:
                 params.append(self.eat(ID).v)
                 if self.at(COMMA): self.eat(COMMA)
             self.eat(RP); self.eat(ARROW)
-            return Lambda(params,self.expr())
+            return Lambda(params,self.body_expr())
         e=self.expr(); self.eat(RP); return e
 
     def list_expr(self):
