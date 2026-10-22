@@ -253,6 +253,49 @@ class TestBodyStatements(unittest.TestCase):
         self.assertEqual(show("apply(f) -> f\ntype(apply(print))"), "fn")
 
 
+class TestIfBodyStatements(unittest.TestCase):
+    """An inline `if ... then ... else ...` is the other place a one-line
+    statement body gets written, so it must accept print/show too."""
+
+    def test_then_and_else_bodies(self):
+        src = "if {c} then print \"a\" else print \"b\""
+        self.assertEqual(output(src.format(c="true")), "a\n")
+        self.assertEqual(output(src.format(c="false")), "b\n")
+
+    def test_else_body_only(self):
+        self.assertEqual(output('x = if false then "a" else print "b"'), "b\n")
+
+    def test_elif_body(self):
+        src = 'if false then 1 elif true then print "e" else 2'
+        self.assertEqual(output(src), "e\n")
+
+    def test_show_bodies_return_their_value(self):
+        self.assertEqual(show("if true then show 5 else show 6"), "5")
+        self.assertEqual(show("if false then show 5 else show 6"), "6")
+
+    def test_print_body_is_not_leaked_as_a_trailing_statement(self):
+        # Before the fix the leftover "b" parsed as a second statement and
+        # became the program's result.
+        self.assertEqual(show('x = if false then "a" else print "b"'), "null")
+
+    def test_inside_a_lambda_passed_to_a_call(self):
+        src = "map([1, 2], x -> if x > 1 then print \"big\" else print \"small\")"
+        self.assertEqual(output(src), "small\nbig\n")
+        self.assertEqual(show(src), "[null, null]")
+
+    def test_inside_a_function_body(self):
+        src = 'f(c) -> if c then print "y" else print "n"\nf(false)'
+        self.assertEqual(output(src), "n\n")
+
+    def test_bare_print_before_else_is_still_a_value(self):
+        self.assertEqual(show("type(if true then print else 1)"), "fn")
+        self.assertEqual(output("if true then print else 1"), "")
+
+    def test_ordinary_bodies_parse_as_before(self):
+        self.assertEqual(show('if 1 > 2 then "yes" else "no"'), "no")
+        self.assertEqual(show('if 1 > 2 then "yes" else "no" | len'), "2")
+
+
 class TestCollections(unittest.TestCase):
     def test_group_by_keeps_native_keys(self):
         src = "g = group_by([1, 2, 3, 4], x -> x % 2)\ng[1]"

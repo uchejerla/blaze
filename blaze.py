@@ -362,7 +362,10 @@ class Parser:
         """
         sub = self.or_expr if stop_at_pipe else self.expr
         t = self.cur()
-        if t.v in ('print', 'show') and self.peek().t not in (LP, NL, EOF, RP, RB, RC, COMMA, DEDENT, PIPE):
+        enders = (LP, NL, EOF, RP, RB, RC, COMMA, DEDENT, PIPE)
+        if (t.v in ('print', 'show')
+                and self.peek().t not in enders
+                and self.peek().v not in ('then', 'elif', 'else')):
             self.eat()
             return Show(sub()) if t.v == 'show' else Call(Var('print'), [sub()], {})
         return sub()
@@ -566,12 +569,14 @@ class Parser:
         c=self.or_expr()
         if self.at('then'):
             # inline: if x then y elif z then w else v
-            self.eat(); th=self.expr(); ei=[]
+            # Bodies go through body_expr so `if x then print "a" else print "b"`
+            # means the same thing it does on its own lines.
+            self.eat(); th=self.body_expr(); ei=[]
             while self.at('elif'):
-                self.eat(); ec=self.or_expr(); self.eat('then'); eb=self.expr()
+                self.eat(); ec=self.or_expr(); self.eat('then'); eb=self.body_expr()
                 ei.append((ec,eb))
             el=None
-            if self.at('else'): self.eat(); el=self.expr()
+            if self.at('else'): self.eat(); el=self.body_expr()
             return If(c,th,ei,el)
         else:
             self.eat(COLON)
