@@ -30,7 +30,7 @@ failing loudly; this release fixes them and adds the first test suite.
 ### Added
 - Multi-line pipelines: a line starting with `|` continues the previous one,
   and newlines inside `(` `[` `{` are ignored
-- `tests/` — 65 stdlib-only conformance tests (`python3 -m unittest discover -s tests`)
+- `tests/` — a stdlib-only conformance suite (`python3 -m unittest discover -s tests`)
   covering README examples, builtins, error paths, the CLI and every example
 - CI workflow running the suite on Python 3.8 / 3.11 / 3.12
 

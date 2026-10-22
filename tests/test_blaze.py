@@ -432,6 +432,13 @@ class TestDocsAndExamples(unittest.TestCase):
                      if not k.startswith("__") and callable(v)}
         self.assertGreaterEqual(len(callables), count)
 
+    def test_readme_states_the_real_builtin_count(self):
+        text = (ROOT / "README.md").read_text()
+        claimed = {int(n) for n in re.findall(r"(\d+) built-ins", text)}
+        count = len({k for k, v in blaze.Interpreter().genv.v.items()
+                    if not k.startswith("__") and callable(v)})
+        self.assertEqual(claimed, {count}, f"README claims {claimed} built-ins, interpreter has {count}")
+
     def test_readme_example_files_exist(self):
         text = (ROOT / "README.md").read_text()
         for name in re.findall(r"\[`([a-z_]+\.blz)`\]\(examples/", text):
